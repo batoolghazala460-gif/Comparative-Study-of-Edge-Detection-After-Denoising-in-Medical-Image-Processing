@@ -1,0 +1,86 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from google.colab import files
+from scipy.ndimage import gaussian_filter, sobel
+import os
+
+# ------------------ Step 1: Upload the Input Image ------------------
+print("Upload the speckled ultrasound image:")
+uploaded = files.upload()
+img_path = list(uploaded.keys())[0]
+img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+img = cv2.resize(img, (512, 512))
+
+# ------------------ Step 2: Lee Filter ------------------
+
+def lee_filter(image, window_size=3, k=0.2):
+    img = image.astype(np.float32)
+    padded_img = np.pad(img, window_size//2, mode='constant', constant_values=0)
+    filtered_img = np.zeros_like(img)
+
+    for i in range(window_size//2, img.shape[0] - window_size//2):
+        for j in range(window_size//2, img.shape[1] - window_size//2):
+            window = padded_img[i - window_size//2:i + window_size//2 + 1,
+                                j - window_size//2:j + window_size//2 + 1]
+            local_mean = np.mean(window)
+            local_var = np.var(window)
+            global_var = np.var(img)
+
+            # Lee Filter Formula
+            filtered_img[i, j] = local_mean + k * (local_var / (local_var + global_var)) * (img[i, j] - local_mean)
+
+    return np.clip(filtered_img, 0, 255).astype(np.uint8)
+
+lee_output = lee_filter(img)
+
+# ------------------ Step 3: Edge Detectors ------------------
+
+edges = {}
+
+edges['Canny'] = cv2.Canny(lee_output, 100, 200)
+
+blur = cv2.GaussianBlur(lee_output, (3,3), 0)
+edges['ISEF'] = cv2.Laplacian(blur, cv2.CV_8U)
+
+marr = cv2.Laplacian(cv2.GaussianBlur(lee_output, (5,5), 1.5), cv2.CV_64F)
+edges['Marr-Hildreth'] = np.uint8(np.absolute(marr))
+
+kirsch_kernels = [
+    np.array([[5,5,5],[-3,0,-3],[-3,-3,-3]]), np.array([[-3,5,5],[-3,0,5],[-3,-3,-3]]),
+    np.array([[-3,-3,5],[-3,0,5],[-3,-3,5]]), np.array([[-3,-3,-3],[-3,0,5],[-3,5,5]]),
+    np.array([[-3,-3,-3],[-3,0,-3],[5,5,5]]), np.array([[-3,-3,-3],[5,0,-3],[5,5,-3]]),
+    np.array([[5,-3,-3],[5,0,-3],[5,-3,-3]]), np.array([[5,5,-3],[5,0,-3],[-3,-3,-3]])
+]
+
+kirsch = np.max([cv2.filter2D(lee_output, -1, k) for k in kirsch_kernels], axis=0)
+edges['Kirsch'] = kirsch
+
+scharr_x = cv2.Scharr(lee_output, cv2.CV_64F, 1, 0)
+scharr_y = cv2.Scharr(lee_output, cv2.CV_64F, 0, 1)
+edges['Scharr'] = cv2.convertScaleAbs(cv2.magnitude(scharr_x, scharr_y))
+
+# ------------------ Step 4: Display & Save Images ------------------
+
+output_folder = "lee_edges"
+os.makedirs(output_folder, exist_ok=True)
+
+plt.figure(figsize=(12, 4))
+for idx, (name, edge_img) in enumerate(edges.items()):
+    plt.subplot(1, 5, idx + 1)
+    plt.imshow(edge_img, cmap='gray')
+    plt.title(name, fontsize=10)
+    plt.axis('off')
+    save_path = f"{output_folder}/{name}_edge.png"
+    cv2.imwrite(save_path, edge_img)
+
+plt.tight_layout()
+plt.show()
+
+# Save Lee Filter Output
+cv2.imwrite(f"{output_folder}/Lee_filtered.png", lee_output)
+
+# Zip and download all images
+import shutil
+shutil.make_archive("lee_edge_outputs", 'zip', output_folder)
+files.download("lee_edge_outputs.zip")
