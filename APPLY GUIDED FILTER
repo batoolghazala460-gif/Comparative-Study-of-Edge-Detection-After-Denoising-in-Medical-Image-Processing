@@ -1,0 +1,89 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from google.colab import files
+import os
+
+# Try importing guidedFilter from ximgproc
+try:
+    from cv2.ximgproc import guidedFilter
+    guided_filter_available = True
+except ImportError:
+    guided_filter_available = False
+
+# ------------------ Step 1: Upload the Input Image ------------------
+print("Upload the speckled ultrasound image:")
+uploaded = files.upload()
+img_path = list(uploaded.keys())[0]
+img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+img = cv2.resize(img, (512, 512))
+
+# ------------------ Step 2: Guided Filter ------------------
+
+def custom_guided_filter(I, r=8, eps=0.01):
+    """ Basic implementation of guided filter for grayscale images. """
+    I = I.astype(np.float32) / 255.0
+    mean_I = cv2.boxFilter(I, cv2.CV_32F, (r, r))
+    mean_II = cv2.boxFilter(I * I, cv2.CV_32F, (r, r))
+    var_I = mean_II - mean_I * mean_I
+    a = var_I / (var_I + eps)
+    b = mean_I - a * mean_I
+    mean_a = cv2.boxFilter(a, cv2.CV_32F, (r, r))
+    mean_b = cv2.boxFilter(b, cv2.CV_32F, (r, r))
+    q = mean_a * I + mean_b
+    return np.uint8(q * 255)
+
+if guided_filter_available:
+    guided_output = guidedFilter(guide=img, src=img, radius=8, eps=0.01)
+else:
+    guided_output = custom_guided_filter(img)
+
+# ------------------ Step 3: Edge Detectors ------------------
+
+edges = {}
+
+edges['Canny'] = cv2.Canny(guided_output, 100, 200)
+
+blur = cv2.GaussianBlur(guided_output, (3,3), 0)
+edges['ISEF'] = cv2.Laplacian(blur, cv2.CV_8U)
+
+marr = cv2.Laplacian(cv2.GaussianBlur(guided_output, (5,5), 1.5), cv2.CV_64F)
+edges['Marr-Hildreth'] = np.uint8(np.absolute(marr))
+
+kirsch_kernels = [
+    np.array([[5,5,5],[-3,0,-3],[-3,-3,-3]]), np.array([[-3,5,5],[-3,0,5],[-3,-3,-3]]),
+    np.array([[-3,-3,5],[-3,0,5],[-3,-3,5]]), np.array([[-3,-3,-3],[-3,0,5],[-3,5,5]]),
+    np.array([[-3,-3,-3],[-3,0,-3],[5,5,5]]), np.array([[-3,-3,-3],[5,0,-3],[5,5,-3]]),
+    np.array([[5,-3,-3],[5,0,-3],[5,-3,-3]]), np.array([[5,5,-3],[5,0,-3],[-3,-3,-3]])
+]
+kirsch = np.max([cv2.filter2D(guided_output, -1, k) for k in kirsch_kernels], axis=0)
+edges['Kirsch'] = kirsch
+
+scharr_x = cv2.Scharr(guided_output, cv2.CV_64F, 1, 0)
+scharr_y = cv2.Scharr(guided_output, cv2.CV_64F, 0, 1)
+edges['Scharr'] = cv2.convertScaleAbs(cv2.magnitude(scharr_x, scharr_y))
+
+# ------------------ Step 4: Display & Save Images ------------------
+
+output_folder = "guided_edges"
+os.makedirs(output_folder, exist_ok=True)
+
+plt.figure(figsize=(12, 4))
+for idx, (name, edge_img) in enumerate(edges.items()):
+    plt.subplot(1, 5, idx + 1)
+    plt.imshow(edge_img, cmap='gray')
+    plt.title(name, fontsize=10)
+    plt.axis('off')
+    save_path = f"{output_folder}/{name}_edge.png"
+    cv2.imwrite(save_path, edge_img)
+
+plt.tight_layout()
+plt.show()
+
+# Save Guided Filter Output
+cv2.imwrite(f"{output_folder}/Guided_filtered.png", guided_output)
+
+# Zip and download all images
+import shutil
+shutil.make_archive("guided_edge_outputs", 'zip', output_folder)
+files.download("guided_edge_outputs.zip")
