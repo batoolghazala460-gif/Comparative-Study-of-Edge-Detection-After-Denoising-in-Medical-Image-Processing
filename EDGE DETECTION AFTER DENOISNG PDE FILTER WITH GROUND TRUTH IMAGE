@@ -1,0 +1,88 @@
+# ⬇ This assumes you've already uploaded the ground truth and PDE edge images
+import pandas as pd
+from sklearn.metrics import precision_score, recall_score, f1_score
+from skimage.metrics import structural_similarity as ssim
+from google.colab import files
+
+# ------------------- Metric Functions (same as before) -------------------
+def calculate_psnr(image1, image2):
+    mse = np.mean((image1 - image2) ** 2)
+    return 100 if mse == 0 else 20 * np.log10(255.0 / np.sqrt(mse))
+
+def calculate_ssim(gt, pred):
+    return ssim(gt, pred)
+
+def calculate_iou(gt, pred):
+    intersection = np.sum((gt == 1) & (pred == 1))
+    union = np.sum((gt == 1) | (pred == 1))
+    return intersection / union if union != 0 else 0
+
+def calculate_snr(gt, pred):
+    noise = gt - pred
+    signal_power = np.mean(gt ** 2)
+    noise_power = np.mean(noise ** 2)
+    return 10 * np.log10(signal_power / noise_power) if noise_power != 0 else float('inf')
+
+def calculate_mismatch(gt, pred):
+    return np.sum(gt != pred) / gt.size * 100
+
+# ------------------- Upload Ground Truth + Edge Images -------------------
+print("Upload the ground truth edge image:")
+uploaded = files.upload()
+gt_img = cv2.imread(next(iter(uploaded)), cv2.IMREAD_GRAYSCALE)
+
+detector_images = {}
+for name in ["Canny", "ISEF", "Marr-Hildreth", "Kirsch", "Scharr"]:
+    print(f"Upload PDE-{name} edge image:")
+    uploaded = files.upload()
+    img = cv2.imread(next(iter(uploaded)), cv2.IMREAD_GRAYSCALE)
+    detector_images[name] = img
+
+# ------------------- Resize + Binarize -------------------
+gt_bin = (gt_img > 0).astype(np.uint8)
+target_size = gt_bin.shape
+for key in detector_images:
+    detector_images[key] = (cv2.resize(detector_images[key], target_size[::-1]) > 0).astype(np.uint8)
+
+# ------------------- Metric Calculation -------------------
+metrics = {}
+for name, pred in detector_images.items():
+    metrics[name] = {
+        "PSNR": calculate_psnr(gt_bin, pred),
+        "Precision": precision_score(gt_bin.flatten(), pred.flatten()),
+        "Recall": recall_score(gt_bin.flatten(), pred.flatten()),
+        "F1-Score": f1_score(gt_bin.flatten(), pred.flatten()),
+        "SSIM": calculate_ssim(gt_bin, pred),
+        "IoU": calculate_iou(gt_bin, pred),
+        "SNR": calculate_snr(gt_bin, pred),
+        "Mismatch (%)": calculate_mismatch(gt_bin, pred)
+    }
+
+# ------------------- Save Table + Chart -------------------
+df = pd.DataFrame.from_dict(metrics, orient='index').round(4)
+df.index.name = "PDE Edge Detector"
+df.reset_index(inplace=True)
+print(df)
+
+# Save and download CSV
+df.to_csv("pde_comparison_metrics.csv", index=False)
+files.download("pde_comparison_metrics.csv")
+
+# Bar Chart
+plt.figure(figsize=(14, 7))
+bar_width = 0.12
+x = np.arange(len(df["PDE Edge Detector"]))
+metric_names = list(df.columns[1:])
+
+for i, metric in enumerate(metric_names):
+    plt.bar(x + i * bar_width, df[metric], width=bar_width, label=metric)
+
+plt.xticks(x + bar_width * (len(metric_names) / 2 - 0.5), df["PDE Edge Detector"])
+plt.title("PDE Edge Detection Performance Comparison")
+plt.xlabel("Edge Detector (after PDE)")
+plt.ylabel("Metric Value")
+plt.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=4)
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.tight_layout()
+plt.savefig("pde_metrics_bar_chart.png")
+plt.show()
