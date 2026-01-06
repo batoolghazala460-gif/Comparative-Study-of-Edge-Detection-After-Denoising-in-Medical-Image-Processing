@@ -15,11 +15,17 @@ Medical images provide critical details necessary for accurate diagnosis and tre
 <img width="1340" height="624" alt="image" src="https://github.com/user-attachments/assets/96be4574-89b3-4dad-9066-05c066a847cd" />
 
 # Conclusion
-OSRAD + Canny consistently outperformed other methods across all key metrics:Precision, Recall, F1-Score, SSIM→ Indicates excellent edge preservation and structural clarity.
+OSRAD + Canny consistently outperformed other methods across all key metrics:
+Precision, Recall, F1-Score, SSIM→ Indicates excellent edge preservation and structural clarity.
+
 PSNR and SNR values were highest for OSRAD + Canny, confirming strong noise suppression with minimal distortion.
+
 Lee Filter: Achieved a good trade-off between smoothing and edge retention.
+
 Median Filter: Effective in removing impulsive noise and enhancing edges.
+
 In contrast, Marr–Hildreth and Kirsch detectors underperformed, particularly in low-contrast areas, due to noise sensitivity and directional bias.
+
 Overall, the experimental findings affirm that selecting an optimal pair of denoising and edge detection techniques is crucial for enhancing diagnostic image quality in medical imaging applications.
 
 
